@@ -15,6 +15,7 @@ To compile and run the program:
 **/
 
 #include "job_control.h"   // remember to compile with module job_control.c 
+#include<string.h>
 
 #define MAX_LINE 256 /* 256 chars per line, per command, should be enough. */
 
@@ -36,17 +37,43 @@ int main(void)
 	{   		
 		printf("COMMAND->");
 		fflush(stdout);
+		ignore_terminal_signals();
 		get_command(inputBuffer, MAX_LINE, args, &background);  /* get next command */
 		
 		if(args[0]==NULL) continue;   // if empty command
+		
+		// T2: Comando interno
+		if(strcmp(args[0], "cd") == 0){
+			chdir(args[1]);
+			continue;
+		}
 
-		/* the steps are:
-			 (1) fork a child process using fork()
-			 (2) the child process will invoke execvp()
-			 (3) if background == 0, the parent will wait, otherwise continue 
-			 (4) Shell shows a status message for processed command 
-			 (5) loop returns to get_commnad() function
-		*/
+		// T1: Crear proceso hijo
+		pid_fork = fork();
+		if(pid_fork == 0){
+			// Proceso HIJO
+			// T2; Nuevo grupo procesos para hijo
+			setpgid(getpid(), getpid());
+			if(!background){
+				tcsetpgrp(STDIN_FILENO, getpid());
+			}
+			restore_terminal_signals();
+			execvp(args[0], args);
+			printf("Error, command not found: %s\n", args[0]);
+			exit(-1);
+		}else{
+			// Proceso PADRE
+			if(!background){
+				// T1: Esperar fin de proceso. Aqui va FOREGROUND -> ejecuta en mi cara
+				pid_wait = waitpid(pid_fork,&status, WUNTRACED);
+				// T2: Recuperar terminal para shell
+				tcsetpgrp(STDIN_FILENO, getpid());
+				printf("Foreground pid: %d, Command: %s, Exited, info: %d\n", pid_wait, args[0], WEXITSTATUS(status));
+			}else{
+				// T1: BACKGROUND -> ejecuta en segundo plano
+				printf("Background job running, pid: %d, Command: %s\n", pid_fork, args[0]);
+			}
+		}
 
 	} // end while
 }
