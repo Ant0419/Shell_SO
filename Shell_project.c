@@ -35,9 +35,10 @@ int main(void)
 
 	while (1)   /* Program terminates normally inside get_command() after ^D is typed*/
 	{   		
+		ignore_terminal_signals();
 		printf("COMMAND->");
 		fflush(stdout);
-		ignore_terminal_signals();
+		// T2: Ignorar señales del teminal
 		get_command(inputBuffer, MAX_LINE, args, &background);  /* get next command */
 		
 		if(args[0]==NULL) continue;   // if empty command
@@ -54,23 +55,42 @@ int main(void)
 			// Proceso HIJO
 			// T2; Nuevo grupo procesos para hijo
 			setpgid(getpid(), getpid());
-			if(!background){
+			if(!background){// equivalente a background == 0
+				// T2: Dar terminal al hijo
 				tcsetpgrp(STDIN_FILENO, getpid());
 			}
+			// T2: Restaurar señales del terminal
 			restore_terminal_signals();
 			execvp(args[0], args);
+
+			// Si execvp falla
 			printf("Error, command not found: %s\n", args[0]);
 			exit(-1);
 		}else{
 			// Proceso PADRE
 			if(!background){
 				// T1: Esperar fin de proceso. Aqui va FOREGROUND -> ejecuta en mi cara
+				// en la tarea 2 añadimos WUNTRACED
 				pid_wait = waitpid(pid_fork,&status, WUNTRACED);
+				
+				// Añadimos diferente 
+				if (WIFEXITED(status)) {
+                    printf("Foreground pid: %d, command: %s, Exited, info: %d\n", pid_wait, args[0],
+                           WEXITSTATUS(status));
+                } else if (WIFSIGNALED(status)) {
+                    printf("Foreground pid: %d, command: %s, Signaled, info: %d\n", pid_wait,
+                           args[0], WTERMSIG(status));
+                } else if (WIFSTOPPED(status)) {
+                    printf("Foreground pid: %d, command: %s, Suspended, info: %d\n", pid_wait,
+                           args[0], WSTOPSIG(status));
+                }
+
 				// T2: Recuperar terminal para shell
 				tcsetpgrp(STDIN_FILENO, getpid());
-				printf("Foreground pid: %d, Command: %s, Exited, info: %d\n", pid_wait, args[0], WEXITSTATUS(status));
+				ignore_terminal_signals();
+				
 			}else{
-				// T1: BACKGROUND -> ejecuta en segundo plano
+				// T1: BACKGROUND -> ejecuta en segundo plano -> NO esperar
 				printf("Background job running, pid: %d, Command: %s\n", pid_fork, args[0]);
 			}
 		}
