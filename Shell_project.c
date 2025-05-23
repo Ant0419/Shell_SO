@@ -19,6 +19,24 @@ To compile and run the program:
 
 #define MAX_LINE 256 /* 256 chars per line, per command, should be enough. */
 
+job* jobList; // T3: Creamos la lista de trabajos
+
+void manejador(int signal){
+	int pid;
+	int status;
+	
+	while ((pid = waitpid(-1, &status, WUNTRACED | WNOHANG)) > 0) {
+        if (WIFEXITED(status)) {
+            printf("Background process %s (%d) Exited\n",
+                   get_item_bypid(jobList, pid)->command, pid);
+            delete_job(jobList, get_item_bypid(jobList, pid));
+        } else if (WIFSTOPPED(status)) {
+            get_item_bypid(jobList, pid)->command = "STOPPED";
+        }
+    }
+}
+
+
 // -----------------------------------------------------------------------
 //                            MAIN          
 // -----------------------------------------------------------------------
@@ -32,12 +50,15 @@ int main(void)
 	int pid_fork, pid_wait; 	/* pid for created and waited process */
 	int status;             	/* status returned by wait */
 	char *file_in, *file_out; 	/* file names for redirection */
+	//T3: Inicializamos la lista	
+	jobList = new_list("jobList");
 
 	while (1)   /* Program terminates normally inside get_command() after ^D is typed*/
 	{   		
 		ignore_terminal_signals();
 		printf("COMMAND->");
 		fflush(stdout);
+		signal(SIGCHLD, manejador); // cada vez que se llame al SIGCHLD lo controlamos desde el manejador
 		// T2: Ignorar señales del teminal
 		get_command(inputBuffer, MAX_LINE, args, &background);  /* get next command */
 		
@@ -68,7 +89,7 @@ int main(void)
 			exit(-1);
 		}else{
 			// Proceso PADRE
-			if(!background){
+			if(!background){ // es lo mismo que background == 0
 				// T1: Esperar fin de proceso. Aqui va FOREGROUND -> ejecuta en mi cara
 				// en la tarea 2 añadimos WUNTRACED
 				pid_wait = waitpid(pid_fork,&status, WUNTRACED);
@@ -83,6 +104,8 @@ int main(void)
                 } else if (WIFSTOPPED(status)) {
                     printf("Foreground pid: %d, command: %s, Suspended, info: %d\n", pid_wait,
                            args[0], WSTOPSIG(status));
+					// T3: Añadimos comandos si el hijo es suspendido.
+					add_job(jobList, new_job(pid_fork, args[0], STOPPED));
                 }
 
 				// T2: Recuperar terminal para shell
@@ -92,6 +115,8 @@ int main(void)
 			}else{
 				// T1: BACKGROUND -> ejecuta en segundo plano -> NO esperar
 				printf("Background job running, pid: %d, Command: %s\n", pid_fork, args[0]);
+				// T3: añadimos trabajo a la lista
+				add_job(jobList, new_job(pid_fork, args[0], BACKGROUND));
 			}
 		}
 
