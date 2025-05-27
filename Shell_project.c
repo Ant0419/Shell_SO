@@ -21,21 +21,108 @@ To compile and run the program:
 
 job* jobList; // T3: Creamos la lista de trabajos
 
-void manejador(int signal){
-	int pid;
-	int status;
-	
-	while ((pid = waitpid(-1, &status, WUNTRACED | WNOHANG)) > 0) {
+void manejador(int sig) {
+    int pid;
+    int status;
+    while ((pid = waitpid(-1, &status, WUNTRACED | WNOHANG | WCONTINUED)) > 0) {
         if (WIFEXITED(status)) {
-            printf("Background process %s (%d) Exited\n",
-                   get_item_bypid(jobList, pid)->command, pid);
-            delete_job(jobList, get_item_bypid(jobList, pid));
+            job* j = get_item_bypid(jobList, pid);
+            if (j == NULL) exit(-1);
+            printf("Background process %s (%d) Exited\n", j->command, pid);
+			/*printf("Foreground pid: %d, command: %s, Exited, info: %d\n", pid,
+				get_item_bypid(jobList, pid)->command, WEXITSTATUS(status));*/
+			delete_job(jobList, j);
+        } else if (WIFSIGNALED(status)) {
+            job* j = get_item_bypid(jobList, pid);
+            if (j == NULL) exit(-1);
+            printf("Foreground pid: %d, command: %s, Signaled\n", pid, j->command);
+
+            delete_job(jobList, j);
         } else if (WIFSTOPPED(status)) {
-            get_item_bypid(jobList, pid)->command = "STOPPED";
+            job* j = get_item_bypid(jobList, pid);
+            if (j == NULL) exit(-1);
+            j->state = STOPPED;
+        } else if (WIFCONTINUED(status)) {
+            job* j = get_item_bypid(jobList, pid);
+            if (j == NULL) exit(-1);
+            printf("Background process %s (%d) continued\n", j->command, j->pgid);
+            j->state = BACKGROUND;
         }
     }
 }
 
+
+void fg(const char* n){
+	int num;
+	if(n == NULL){
+		num=1;
+	}else{
+		num = atoi(n);
+	}
+
+	block_SIGCHLD();
+	job* aux = get_item_bypos(jobList, num);
+	unblock_SIGCHLD();
+
+	int status;
+	if(aux == NULL){
+		return;
+	}
+	int pid = aux->pgid;
+	char* command = aux->command;
+
+	tcsetpgrp(STDIN_FILENO, pid);
+
+	aux->state = FOREGROUND;
+
+	killpg(aux->pgid, SIGCONT);
+
+	waitpid(pid, &status, WUNTRACED);
+
+	tcsetpgrp(STDIN_FILENO, getpid());
+
+	if (WIFEXITED(status)) {
+		printf("Foreground pid: %d, command: %s, Exited, info: %d\n", pid, command, WEXITSTATUS(status));
+
+		block_SIGCHLD();
+		delete_job(jobList, aux);
+		unblock_SIGCHLD();
+	} else if (WIFSIGNALED(status)) {
+		printf("Foreground pid: %d, command: %s, Signaled, info: %d\n", pid, command, WIFSIGNALED(status));
+
+		block_SIGCHLD();
+		delete_job(jobList, aux);
+		unblock_SIGCHLD();
+	} else if (WIFSTOPPED(status)) {
+		printf("Foreground pid: %d, command: %s, Suspended, info: %d\n", pid, command, WSTOPSIG(status));
+		
+		block_SIGCHLD();
+		aux->state = STOPPED; // como esta parado cambiamos el estado a STOPPED
+		unblock_SIGCHLD();
+	}
+}
+
+void bg(const char* n){
+	int num;
+	if(n == NULL){
+		num=1;
+	}else{
+		num = atoi(n);
+	}
+
+	block_SIGCHLD();
+	job* aux = get_item_bypos(jobList, num);
+	if(aux == NULL){
+		unblock_SIGCHLD();
+		return;
+	}
+
+	aux->state = BACKGROUND;
+	unblock_SIGCHLD();
+	killpg(aux->pgid, SIGCONT);
+
+	printf("Background job running ,pid: %d, command: %s\n", aux->pgid, aux->command);
+}
 
 // -----------------------------------------------------------------------
 //                            MAIN          
@@ -65,8 +152,30 @@ int main(void)
 		if(args[0]==NULL) continue;   // if empty command
 		
 		// T2: Comando interno
+		// comando CD
 		if(strcmp(args[0], "cd") == 0){
 			chdir(args[1]);
+			continue;
+		}
+
+		// T4: Nuevos comandos internos
+		// comando jobs
+		if(strcmp(args[0], "jobs") == 0){
+			if(empty_list(jobList)){
+				printf("Lista de trabajos vacia\n");
+			}
+			print_job_list(jobList);
+			continue;
+		}
+
+		// Comando fg
+		if(strcmp(args[0], "fg") == 0){
+			fg(args[1]);
+			continue;
+		}
+
+		if(strcmp(args[0], "bg") == 0){
+			bg(args[1]);
 			continue;
 		}
 
@@ -114,7 +223,7 @@ int main(void)
 				
 			}else{
 				// T1: BACKGROUND -> ejecuta en segundo plano -> NO esperar
-				printf("Background job running, pid: %d, Command: %s\n", pid_fork, args[0]);
+				printf("Background job running... pid: %d, Command: %s\n", pid_fork, args[0]);
 				// T3: añadimos trabajo a la lista
 				add_job(jobList, new_job(pid_fork, args[0], BACKGROUND));
 			}
