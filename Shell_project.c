@@ -20,11 +20,18 @@ To compile and run the program:
 #define MAX_LINE 256 /* 256 chars per line, per command, should be enough. */
 
 job* jobList; // T3: Creamos la lista de trabajos
+volatile sig_atomic_t foreground_pid = 0;
+
 
 void manejador(int sig) {
     int pid;
     int status;
+	
     while ((pid = waitpid(-1, &status, WUNTRACED | WNOHANG | WCONTINUED)) > 0) {
+		if(pid == foreground_pid){
+			continue;
+		}
+
         if (WIFEXITED(status)) {
             job* j = get_item_bypid(jobList, pid);
             if (j == NULL) exit(-1);
@@ -245,7 +252,9 @@ int main(void)
 			if(!background){ // es lo mismo que background == 0
 				// T1: Esperar fin de proceso. Aqui va FOREGROUND -> ejecuta en mi cara
 				// en la tarea 2 añadimos WUNTRACED
+				foreground_pid = pid_fork;
 				pid_wait = waitpid(pid_fork,&status, WUNTRACED);
+				foreground_pid = 0;
 				
 				// Añadimos diferente 
 				if (WIFEXITED(status)) {
