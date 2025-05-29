@@ -51,7 +51,7 @@ void manejador(int sig) {
     }
 }
 
-
+// Comando fg
 void fg(const char* n){
 	int num;
 	if(n == NULL){
@@ -102,6 +102,7 @@ void fg(const char* n){
 	}
 }
 
+// Comando bg 
 void bg(const char* n){
 	int num;
 	if(n == NULL){
@@ -139,6 +140,7 @@ int main(void)
 	char *file_in, *file_out; 	/* file names for redirection */
 	//T3: Inicializamos la lista	
 	jobList = new_list("jobList");
+	FILE *infile, *outfile; 
 
 	while (1)   /* Program terminates normally inside get_command() after ^D is typed*/
 	{   		
@@ -149,6 +151,8 @@ int main(void)
 		// T2: Ignorar señales del teminal
 		get_command(inputBuffer, MAX_LINE, args, &background);  /* get next command */
 		
+		parse_redirections(args, &file_in, &file_out);
+
 		if(args[0]==NULL) continue;   // if empty command
 		
 		// T2: Comando interno
@@ -191,10 +195,50 @@ int main(void)
 			}
 			// T2: Restaurar señales del terminal
 			restore_terminal_signals();
+
+			// T5: redireccionar entrada y salida
+			if(file_in != NULL){
+				infile = fopen(file_in, "r");
+				if(NULL ==  infile){
+					printf("\tError, abriendo: %s\n", file_in);
+					return (-1);
+				}
+
+				int fnum1 = fileno(infile);
+				int fnum2 = fileno(stdin);
+				int redirection_success = dup2(fnum1, fnum2);
+
+				if(redirection_success == -1){
+					printf("\tError: redireccionando entrada\n");
+					return (-1);
+				}
+			}
+
+			if(file_out != NULL){
+				outfile = fopen(file_out, "w");
+				if(NULL == outfile){
+					printf("\tError, abriendo: %s\n", file_out);
+					return (-1);
+				}
+
+				int fnum1 = fileno(outfile);
+				int fnum2 = fileno(stdout);
+				int redirection_success = dup2(fnum1, fnum2);
+
+				if(redirection_success == -1){
+					printf("\tError: redireccionando entrada\n");
+					return (-1);
+				}
+			}
+
 			execvp(args[0], args);
 
 			// Si execvp falla
 			printf("Error, command not found: %s\n", args[0]);
+			
+			if (infile != NULL) fclose(infile);
+            if (outfile != NULL) fclose(outfile);
+
 			exit(-1);
 		}else{
 			// Proceso PADRE
