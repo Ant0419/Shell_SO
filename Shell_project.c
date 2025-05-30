@@ -20,42 +20,36 @@ To compile and run the program:
 #define MAX_LINE 256 /* 256 chars per line, per command, should be enough. */
 
 job* jobList; // T3: Creamos la lista de trabajos
-volatile sig_atomic_t foreground_pid = 0;
 
 
 void manejador(int sig) {
-    int pid;
-    int status;
-	
-    while ((pid = waitpid(-1, &status, WUNTRACED | WNOHANG | WCONTINUED)) > 0) {
-		if(pid == foreground_pid){
-			continue;
+    int tam_lista = list_size(jobList);
+
+	for(int i = (tam_lista); i>0; i--){
+		int status;
+		job *j = get_item_bypos(jobList, i);
+		if(j!=NULL){
+			int wpid = waitpid(j->pgid, &status, WUNTRACED|WNOHANG|WCONTINUED);
+
+			if(wpid == j->pgid){
+				if(WIFEXITED(status)){
+					printf("Background pid; %d, command: %s, %s, info: %d\n", j->pgid, j->command, "Exited", WEXITSTATUS(status));
+					delete_job(jobList, j);
+				}else if(WIFSIGNALED(status)){
+					printf("Background pid; %d, command: %s, %s, info: %d\n", j->pgid, j->command, "Signaled", WTERMSIG(status));
+					delete_job(jobList, j);
+				}else if(WIFSTOPPED(status)){
+					j->state = STOPPED;
+					printf("Background pid; %d, command: %s, %s, info: %d\n", j->pgid, j->command, "Suspended", WSTOPSIG(status));
+				}else if(WCONTINUED){
+					j->state = BACKGROUND;
+					printf("Background process %s (%d) continued\n", j->command, j->pgid);
+				}
+			}
 		}
+	}
 
-        if (WIFEXITED(status)) {
-            job* j = get_item_bypid(jobList, pid);
-            if (j == NULL) exit(-1);
-            printf("Background process %s (%d) Exited\n", j->command, pid);
-			/*printf("Foreground pid: %d, command: %s, Exited, info: %d\n", pid,
-				get_item_bypid(jobList, pid)->command, WEXITSTATUS(status));*/
-			delete_job(jobList, j);
-        } else if (WIFSIGNALED(status)) {
-            job* j = get_item_bypid(jobList, pid);
-            if (j == NULL) exit(-1);
-            printf("Foreground pid: %d, command: %s, Signaled\n", pid, j->command);
 
-            delete_job(jobList, j);
-        } else if (WIFSTOPPED(status)) {
-            job* j = get_item_bypid(jobList, pid);
-            if (j == NULL) exit(-1);
-            j->state = STOPPED;
-        } else if (WIFCONTINUED(status)) {
-            job* j = get_item_bypid(jobList, pid);
-            if (j == NULL) exit(-1);
-            printf("Background process %s (%d) continued\n", j->command, j->pgid);
-            j->state = BACKGROUND;
-        }
-    }
 }
 
 // Comando fg
@@ -252,9 +246,7 @@ int main(void)
 			if(!background){ // es lo mismo que background == 0
 				// T1: Esperar fin de proceso. Aqui va FOREGROUND -> ejecuta en mi cara
 				// en la tarea 2 añadimos WUNTRACED
-				foreground_pid = pid_fork;
 				pid_wait = waitpid(pid_fork,&status, WUNTRACED);
-				foreground_pid = 0;
 				
 				// Añadimos diferente 
 				if (WIFEXITED(status)) {
